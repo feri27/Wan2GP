@@ -4,6 +4,8 @@ FROM pytorch/pytorch:2.4.0-cuda12.4-cudnn9-devel
 # Atur working directory
 WORKDIR /app
 
+COPY . .
+
 # Perbarui paket dan instal dependensi sistem
 RUN apt-get update && apt-get install -y ffmpeg
 
