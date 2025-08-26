@@ -14,4 +14,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 EXPOSE 7860
 
 # Entrypoint akan mengunduh model dan menjalankan aplikasi Gradio
-CMD [ "python", "./wgp.py" ]
+CMD [ "python", "wgp.py" ]
