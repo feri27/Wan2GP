@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 env:
-  IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/wan2Gp
+  IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/wan-2gp
 
 jobs:
   build-and-push:
