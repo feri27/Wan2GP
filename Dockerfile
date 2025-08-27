@@ -1,54 +1,34 @@
-# Base image with CUDA 12.4, suitable for PyTorch 2.6.0 builds
-FROM nvidia/cuda:12.4.1-devel-ubuntu22.04
+FROM nvidia/cuda:12.8.1-devel-ubuntu24.04
 
-# Runtime environment configuration
-ENV DEBIAN_FRONTEND=noninteractive \
-    NVIDIA_VISIBLE_DEVICES=all \
-    NVIDIA_DRIVER_CAPABILITIES=compute,utility \
-    CUDA_HOME=/usr/local/cuda \
-    PATH=/usr/local/cuda/bin:$PATH \
-    LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH \
-    PYTHONUNBUFFERED=1 \
-    PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-
-# Install required system libraries
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    libgl1-mesa-glx \
-    libglib2.0-0 \
-    python3.10 \
-    python3-pip \
-    python3.10-venv \
-    python3.10-dev \
-    build-essential \
-    gcc \
-    && python3 -m pip install --upgrade pip \
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    python3 python3-pip git wget libgl1 libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
-# Set working directory
-WORKDIR /app
+# Disable externally managed Python environment
+RUN rm /usr/lib/python*/EXTERNALLY-MANAGED
 
-# Retrieve Wan2GP repo and archive it for use at runtime
-RUN git clone --depth=1 https://github.com/deepbeepmeep/Wan2GP.git Wan2GP && \
-    tar -czf Wan2GP.tar.gz Wan2GP && \
-    rm -rf Wan2GP
+# Install PyTorch with xFormers
+RUN pip install --no-cache-dir \
+    torch==2.7.0 torchvision torchaudio xformers --index-url https://download.pytorch.org/whl/cu128
 
-# Copy container startup script
-COPY start.sh start.sh
-RUN chmod +x start.sh
+# Install Wan2GP dependencies
+RUN git clone https://github.com/deepbeepmeep/Wan2GP.git /tmp/Wan2GP && \
+    pip install --no-cache-dir -r /tmp/Wan2GP/requirements.txt && \
+    rm -rf /tmp/Wan2GP
 
-# Default exposed port for Gradio UI
-EXPOSE 7860
+# Install Sage Attention support
+RUN pip install --no-cache-dir \
+    sageattention==1.0.6
 
-# Runtime config defaults
-ENV AUTO_UPDATE=0
+# Install Sage Attention 2 support for CUDA Compute Capability 9.0 (H100)
+RUN git clone https://github.com/thu-ml/SageAttention /tmp/SageAttention && \
+    cd /tmp/SageAttention && \
+    sed -i 's/compute_capabilities = set()/compute_capabilities = {"9.0"}/' setup.py && \
+    pip install . && \
+    rm -rf /tmp/SageAttention
 
-# Container launch command
-CMD ["bash", "./start.sh"]
+# Set working directory where volume will be mounted
+WORKDIR /app/Wan2GP
 
-## To Build and Run:
-## Note: Adjust the volume path as needed for your environment
-## To run with GPU support, ensure you have the NVIDIA Container Toolkit installed
-
-# docker build -t ai-wan-gp -f dockerfile-gpu-poor .
-# docker run -it --rm --name ai-wan-gp --gpus all --shm-size=24g -p 7860:7860 -v "C:/_Models/wan:/workspace" -v "C:/_Models/wan/cache:/app/cache" -e AUTO_UPDATE=0 ai-wan-gp
+CMD ["python3", "wgp.py", "--listen", "--profile", "1", "--fp16"]
