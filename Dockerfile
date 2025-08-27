@@ -34,8 +34,8 @@ RUN git clone --depth=1 https://github.com/deepbeepmeep/Wan2GP.git Wan2GP && \
     rm -rf Wan2GP
 
 # Copy container startup script
-COPY startup-gpu-poor.sh startup-gpu-poor.sh
-RUN chmod +x startup-gpu-poor.sh
+COPY start.sh start.sh
+RUN chmod +x start.sh
 
 # Default exposed port for Gradio UI
 EXPOSE 7860
