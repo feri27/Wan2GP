@@ -1,9 +1,9 @@
-# Base Image: Official PyTorch image with PyTorch 2.6.0, CUDA 12.4.1, cuDNN 9, and development tools.
+# Base Image: Official PyTorch image with PyTorch 2.7.0, CUDA 12.8.0, dan development tools.
 # This image uses Conda for Python environment management.
-FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-devel
+FROM pytorch/pytorch:2.7.0-cuda12.8-cudnn9-devel
 
 # Set maintainer label
-LABEL maintainer="anjar@example.com"
+LABEL maintainer="thankfulcarp@example.com"
 
 # Set environment variables
 # - DEBIAN_FRONTEND=noninteractive: Prevents interactive prompts during package installation.
@@ -30,7 +30,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     openssh-server \
     rsync \
-    net-tools \	
+    net-tools \
     # Add any other essential system-level packages Wan2GP might need that aren't Python packages
     && rm -rf /var/lib/apt/lists/*
 
@@ -45,7 +45,6 @@ WORKDIR /app
 ARG WAN2GP_REPO=https://github.com/deepbeepmeep/Wan2GP.git
 ARG WAN2GP_BRANCH=main
 RUN git clone --depth 1 --branch ${WAN2GP_BRANCH} ${WAN2GP_REPO} .
-
 # 2. Install pip dependencies from requirements.txt (Wan2GP step 2)
 # This uses the pip from the Conda environment in the base image.
 RUN if [ -f requirements.txt ]; then \
@@ -56,22 +55,44 @@ RUN if [ -f requirements.txt ]; then \
 
 # --- Optional Attention Mechanisms (Wan2GP step 3) ---
 # These require the CUDA toolkit (nvcc, etc.) from the base image for compilation.
+# 3.1 Optional Sage Attention support
+RUN pip install sageattention==1.0.6
 
-# Install Sage Attention support
-RUN pip install --no-cache-dir \
-    sageattention==1.0.6
-
-# Install Sage Attention 2 support for CUDA Compute Capability 9.0 (H100)
-RUN git clone https://github.com/thu-ml/SageAttention /tmp/SageAttention && \
-    cd /tmp/SageAttention && \
-    sed -i 's/compute_capabilities = set()/compute_capabilities = {"9.0"}/' setup.py && \
-    pip install . && \
-    rm -rf /tmp/SageAttention
+# 3.2 Optional Sage 2 Attention support (Linux Manual Compilation)
+RUN git clone https://github.com/thu-ml/SageAttention /tmp/SageAttention
+WORKDIR /tmp/SageAttention
+RUN \
+    # Patch setup.py: After 'compute_capabilities = set()', insert logic to populate it from TORCH_CUDA_ARCH_LIST
+    # Ensure the printed Python code has correct indentation (0 for the start of the block if inserted at global scope).
+    awk '1; /^[[:space:]]*compute_capabilities = set\(\)/ { \
+        print "# --- BEGIN SAGE_SETUP_PATCH for Docker build ---"; \
+        print "_arch_list_env_var = os.environ.get(\"TORCH_CUDA_ARCH_LIST\")"; \
+        print "if not compute_capabilities and _arch_list_env_var:"; \
+        print "    print(f\"[SAGE_SETUP_PATCH] No GPUs detected by torch.cuda.device_count(), using TORCH_CUDA_ARCH_LIST: {_arch_list_env_var!r}\")"; \
+        print "    for _arch_spec in _arch_list_env_var.replace(\";\", \" \").split():"; \
+        print "        _arch = _arch_spec.split(\"+\")[0]"; \
+        print "        if _arch in SUPPORTED_ARCHS:"; \
+        print "            compute_capabilities.add(_arch)"; \
+        print "            print(f\"[SAGE_SETUP_PATCH] Added capability: {_arch!r}\")"; \
+        print "        else:"; \
+        print "            print(f\"[SAGE_SETUP_PATCH] Warning: Arch {_arch!r} from TORCH_CUDA_ARCH_LIST ({_arch_list_env_var!r}) not in SageAttention SUPPORTED_ARCHS ({SUPPORTED_ARCHS!r}).\")"; \
+        print "    if compute_capabilities:"; \
+        print "        print(f\"[SAGE_SETUP_PATCH] Populated compute_capabilities from TORCH_CUDA_ARCH_LIST: {compute_capabilities!r}\")"; \
+        print "    else:"; \
+        print "        print(\"        # This print is for a Python comment, indentation here refers to Python comment indent\")"; \
+        print "        print(f\"[SAGE_SETUP_PATCH] ERROR: TORCH_CUDA_ARCH_LIST ({_arch_list_env_var!r}) did not yield any architectures in SUPPORTED_ARCHS ({SUPPORTED_ARCHS!r}).\")"; \
+        print "# --- END SAGE_SETUP_PATCH ---"; \
+    }' setup.py > setup.py.patched && mv setup.py.patched setup.py && \
+    # For SageAttention, specifically use TORCH_CUDA_ARCH_LIST="8.9" to target Ada Lovelace.
+    # This is a workaround for its setup.py not handling multiple gencodes well for its specific kernels.
+    # This ensures the SM89 kernels are built, and SM80 kernels are built targeting SM89.
+    TORCH_CUDA_ARCH_LIST="8.9" pip install --no-build-isolation .
+WORKDIR /app
+RUN rm -rf /tmp/SageAttention
 
 # 3.3 Optional Flash Attention support
 # Uses the globally set TORCH_CUDA_ARCH_LIST="8.6 8.9"
 RUN pip install flash-attn==2.7.2.post1 --no-build-isolation
-
 
 # --- Model Handling ---
 # Wan2GP's wgp.py script is expected to handle the download of its own base models.
